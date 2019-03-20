@@ -8,7 +8,7 @@ const getPostData = (req) => {
             resolve({});
             return
         }
-        if (req.headers['Content-type'] !== 'application/json') {
+        if (req.headers['content-type'] !== 'application/json') {
             resolve({});
             return
         }
@@ -37,7 +37,7 @@ const serverHandle = (req, res) => {
     req.path = url.split('?')[0];
 
     // 解析query
-    req.query = querystring.parse(url.split('?')[0])
+    req.query = querystring.parse(url.split('?')[1])
 
     // 处理postData
     getPostData(req).then(postData => {
