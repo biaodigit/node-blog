@@ -1,9 +1,7 @@
 const querystring = require('querystring')
 const handleBlogRouter = require('./src/router/blog');
 const handleUserRouter = require('./src/router/user');
-
-// session数据
-const SESSION_DATA = {};
+const {get, set} = require('./src/db/redis')
 
 const getCookieExpires = () => {
     const d = new Date()
@@ -61,26 +59,30 @@ const serverHandle = (req, res) => {
 
     let needSetCookie = false;
     let userId = req.cookie.userid;
-    if (userId) {
-        if (!SESSION_DATA[userId]) {
-            SESSION_DATA[userId] = {}
-        }
-    } else {
-        needSetCookie = true;
+    if (!userId) {
+        needSetCookie = true
         userId = `${Date.now()}_${Math.random()}`;
-        SESSION_DATA[userId] = {}
+        set(userId, {})
     }
-    req.session = SESSION_DATA[userId]
 
-    // 处理postData
-    getPostData(req).then(postData => {
+    req.sessionId = userId
+
+    get(req.sessionId).then(sessionData => {
+        if (sessionData === null) {
+            set(req.sessionId, {})
+            req.session = {}
+        } else {
+            req.session = sessionData
+        }
+        return getPostData(req)
+    }).then(postData => {
         req.body = postData;
 
         // 处理blog路由
         const blogResult = handleBlogRouter(req, res);
         if (blogResult) {
             blogResult.then((blogData) => {
-                if(needSetCookie){
+                if (needSetCookie) {
                     res.setHeader('Set-Cookie', `userid=${userId};path=/;httpOnly;expires=${getCookieExpires()}`)
                 }
                 res.end(JSON.stringify(blogData));
@@ -91,7 +93,7 @@ const serverHandle = (req, res) => {
         const userResult = handleUserRouter(req, res);
         if (userResult) {
             userResult.then((userData) => {
-                if(needSetCookie){
+                if (needSetCookie) {
                     res.setHeader('Set-Cookie', `userid=${userId};path=/;httpOnly;expires=${getCookieExpires()}`)
                 }
                 res.end(JSON.stringify(userData));
