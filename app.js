@@ -1,113 +1,41 @@
-const querystring = require('querystring')
-const handleBlogRouter = require('./src/router/blog');
-const handleUserRouter = require('./src/router/user');
-const {get, set} = require('./src/db/redis')
-const {access} = require('./src/utils/log')
+var createError = require('http-errors');
+var express = require('express');
+var path = require('path');
+var cookieParser = require('cookie-parser');
+var logger = require('morgan');
 
-const getCookieExpires = () => {
-    const d = new Date()
-    d.setTime(d.getTime() + (24 * 60 * 60 * 1000))
-    return d.toGMTString()
-}
+var indexRouter = require('./routes/index');
+var usersRouter = require('./routes/users');
 
-const getPostData = (req) => {
-    return new Promise((resolve, reject) => {
-        if (req.method !== 'POST') {
-            resolve({});
-            return
-        }
-        if (req.headers['content-type'] !== 'application/json') {
-            resolve({});
-            return
-        }
-        let postData = '';
+var app = express();
 
-        req.on('data', chunk => {
-            postData += chunk.toString()
-        });
+// view engine setup
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'jade');
 
-        req.on('end', () => {
-            if (!postData) {
-                resolve({});
-                return
-            }
-            resolve(JSON.parse(postData))
-        })
-    })
-};
+app.use(logger('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
 
-const serverHandle = (req, res) => {
-    // 记录 access log
-    access(`${req.method} -- ${req.url} -- ${req.headers['user-agent']} -- ${Date.now()}`)
-    // 设置返回格式
-    res.setHeader('Content-type', 'application/json')
+app.use('/', indexRouter);
+app.use('/users', usersRouter);
 
-    // 获取path
-    const url = req.url;
-    req.path = url.split('?')[0];
+// catch 404 and forward to error handler
+app.use(function(req, res, next) {
+  next(createError(404));
+});
 
-    // 解析query
-    req.query = querystring.parse(url.split('?')[1])
+// error handler
+app.use(function(err, req, res, next) {
+  // set locals, only providing error in development
+  res.locals.message = err.message;
+  res.locals.error = req.app.get('env') === 'development' ? err : {};
 
-    // 解析cookie
-    req.cookie = {}
-    const cookieStr = req.headers.cookie || ''
-    cookieStr.split(';').forEach(item => {
-        if (!item) return
-        const arr = item.split('=');
-        const key = arr[0].trim();
-        const val = arr[1].trim();
-        req.cookie[key] = val;
-    })
+  // render the error page
+  res.status(err.status || 500);
+  res.render('error');
+});
 
-    let needSetCookie = false;
-    let userId = req.cookie.userid;
-    if (!userId) {
-        needSetCookie = true
-        userId = `${Date.now()}_${Math.random()}`;
-        set(userId, {})
-    }
-
-    req.sessionId = userId
-
-    get(req.sessionId).then(sessionData => {
-        if (sessionData === null) {
-            set(req.sessionId, {})
-            req.session = {}
-        } else {
-            req.session = sessionData
-        }
-        return getPostData(req)
-    }).then(postData => {
-        req.body = postData;
-
-        // 处理blog路由
-        const blogResult = handleBlogRouter(req, res);
-        if (blogResult) {
-            blogResult.then((blogData) => {
-                if (needSetCookie) {
-                    res.setHeader('Set-Cookie', `userid=${userId};path=/;httpOnly;expires=${getCookieExpires()}`)
-                }
-                res.end(JSON.stringify(blogData));
-            })
-            return
-        }
-        // 处理user路由
-        const userResult = handleUserRouter(req, res);
-        if (userResult) {
-            userResult.then((userData) => {
-                if (needSetCookie) {
-                    res.setHeader('Set-Cookie', `userid=${userId};path=/;httpOnly;expires=${getCookieExpires()}`)
-                }
-                res.end(JSON.stringify(userData));
-            })
-            return
-        }
-        // 未命中路由,返回404
-        res.writeHead(404, {"Content-type": "text/plain"});
-        res.write("404 Not Found\n")
-        res.end()
-    })
-};
-
-module.exports = serverHandle;
+module.exports = app;
